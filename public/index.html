@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Today's Calendar</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <div class="header-row">
+        <div>
+          <h1>Today</h1>
+          <p class="date" id="date"></p>
+        </div>
+        <a href="/auth/logout" class="sign-out hidden" id="sign-out">Sign out</a>
+      </div>
+    </header>
+    <section class="sign-in hidden" id="sign-in">
+      <p class="sign-in-text">Sign in with your Google account to see today’s events from your calendar.</p>
+      <a href="/auth/login" class="btn-google" id="btn-google">Sign in with Google</a>
+      <p class="auth-error hidden" id="auth-error"></p>
+    </section>
+    <section class="events" id="events">
+      <p class="loading" id="loading">Loading events…</p>
+      <p class="error hidden" id="error"></p>
+      <ul class="event-list" id="event-list"></ul>
+      <p class="empty hidden" id="empty">No events today.</p>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
