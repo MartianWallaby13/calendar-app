@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const { google } = require('googleapis');
+const { DateTime } = require('luxon');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -80,11 +81,13 @@ app.get('/auth/callback', async (req, res) => {
     return res.redirect('/?error=missing_code');
   }
   try {
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/auth/callback`;
+    oauth2Client.redirect_uri = redirectUri;
     const { tokens } = await oauth2Client.getToken(code);
     storeTokens(tokens);
     res.redirect('/');
   } catch (err) {
-    console.error('OAuth callback error:', err);
+    console.error('OAuth callback error:', err.message);
     res.redirect(`/?error=${encodeURIComponent(err.message)}`);
   }
 });
@@ -99,6 +102,12 @@ app.get('/auth/logout', (req, res) => {
 app.get('/api/auth', (req, res) => {
   const tokens = getStoredTokens();
   res.json({ authenticated: !!tokens });
+});
+
+// Optional: timezone for "today" (e.g. America/Chicago). If set, app uses this instead of browser timezone.
+app.get('/api/config', (req, res) => {
+  const timezone = process.env.CALENDAR_TIMEZONE || null;
+  res.json({ timezone });
 });
 
 // Get today's events (requires OAuth tokens)
@@ -124,14 +133,44 @@ app.get('/api/events', async (req, res) => {
     const eventColorMap = colorsRes.data.event || {};
     const calendarBg = calendarListRes?.data?.backgroundColor || null;
 
-    const now = new Date();
-    const timeMin = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-    const timeMax = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    // Determine date range: (1) date+timezone from env, (2) client timeMin/timeMax, (3) server date
+    let timeMinStr = req.query.timeMin;
+    let timeMaxStr = req.query.timeMax;
+    let dateForHeader = null;
+
+    const dateParam = req.query.date;
+    const tzParam = req.query.timezone || process.env.CALENDAR_TIMEZONE;
+    if (dateParam && tzParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+      try {
+        const [y, m, d] = dateParam.split('-').map(Number);
+        const start = DateTime.fromObject({ year: y, month: m, day: d }, { zone: tzParam }).startOf('day');
+        const end = DateTime.fromObject({ year: y, month: m, day: d }, { zone: tzParam }).endOf('day');
+        timeMinStr = start.toUTC().toISO();
+        timeMaxStr = end.toUTC().toISO();
+        dateForHeader = dateParam;
+      } catch (e) {
+        // invalid timezone, fall through to other logic
+      }
+    }
+
+    const validRange =
+      timeMinStr &&
+      timeMaxStr &&
+      !Number.isNaN(Date.parse(timeMinStr)) &&
+      !Number.isNaN(Date.parse(timeMaxStr));
+    if (!validRange) {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+      timeMinStr = start.toISOString();
+      timeMaxStr = end.toISOString();
+    }
+    if (!dateForHeader) dateForHeader = timeMinStr.slice(0, 10);
 
     const response = await calendar.events.list({
       calendarId,
-      timeMin: timeMin.toISOString(),
-      timeMax: timeMax.toISOString(),
+      timeMin: timeMinStr,
+      timeMax: timeMaxStr,
       maxResults: 50,
       singleEvents: true,
       orderBy: 'startTime',
@@ -165,7 +204,7 @@ app.get('/api/events', async (req, res) => {
       };
     });
 
-    res.json({ events, date: timeMin.toISOString().slice(0, 10) });
+    res.json({ events, date: dateForHeader });
   } catch (err) {
     if (err.code === 401 || (err.response && err.response.status === 401)) {
       clearTokens();
@@ -179,6 +218,7 @@ app.get('/api/events', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Calendar app running at http://localhost:${PORT}`);
+const HOST = process.env.HOST || '0.0.0.0';
+app.listen(PORT, HOST, () => {
+  console.log(`Calendar app running at http://${HOST}:${PORT}`);
 });

@@ -58,9 +58,47 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+function getTodayInZone(timezone) {
+  if (!timezone) return null;
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = formatter.formatToParts(new Date());
+  const y = parts.find((p) => p.type === 'year').value;
+  const m = parts.find((p) => p.type === 'month').value;
+  const d = parts.find((p) => p.type === 'day').value;
+  return `${y}-${m}-${d}`;
+}
+
 async function loadEvents() {
   try {
-    const res = await fetch('/api/events');
+    const configRes = await fetch('/api/config');
+    const config = configRes.ok ? await configRes.json() : { timezone: null };
+    const timezone = config.timezone || null;
+
+    let eventsUrl = '/api/events';
+    let displayDateStr;
+
+    if (timezone) {
+      const dateStr = getTodayInZone(timezone);
+      if (dateStr) {
+        eventsUrl = '/api/events?date=' + encodeURIComponent(dateStr) + '&timezone=' + encodeURIComponent(timezone);
+        displayDateStr = dateStr;
+      }
+    }
+
+    if (!displayDateStr) {
+      const now = new Date();
+      const localStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      const localEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+      eventsUrl = '/api/events?timeMin=' + encodeURIComponent(localStart.toISOString()) + '&timeMax=' + encodeURIComponent(localEnd.toISOString());
+      displayDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    }
+
+    const res = await fetch(eventsUrl);
     const data = await res.json();
 
     loadingEl.classList.add('hidden');
@@ -84,9 +122,7 @@ async function loadEvents() {
       return;
     }
 
-    if (data.date) {
-      dateEl.textContent = formatDate(data.date + 'T12:00:00');
-    }
+    dateEl.textContent = formatDate((data.date || displayDateStr) + 'T12:00:00');
 
     if (!data.events || data.events.length === 0) {
       emptyEl.classList.remove('hidden');
